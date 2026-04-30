@@ -1,55 +1,44 @@
 publiccodeYmlVersion: 0.5.0
 name: ANNCSU-PostgreSQL-PDND-sync
 url: https://github.com/ComuneMontelupoFiorentino/ANNCSU-PostgreSQL-PDND-sync
-landingURL: https://github.com/ComuneMontelupoFiorentino/ANNCSU-PostgreSQL-PDND-sync
+softwareVersion: "0.1.0"
+releaseDate: 2026-01-15
 platforms:
   - linux
-  - windows
-categories:
-  - geographic-information-systems
-  - data-collection
 organisation:
   uri: urn:x-italian-pa:c_f551
   name: Comune di Montelupo Fiorentino
 usedBy:
   - Comune di Montelupo Fiorentino
   - Comune di Dalmine
-developmentStatus: stable
-softwareType: standalone/backend
-intendedAudience:
-  countries:
-    - IT
-  scope:
-    - society
-    - transportation
+developmentStatus: beta
+softwareType: service
 description:
-  it-IT:
+  en-US:
     localisedName: ANNCSU-PostgreSQL-PDND-sync
-    shortDescription: Client per autenticazione PDND e conferimento/aggiornamento dati ANNCSU
-    longDescription: " Script in linguaggio PHP in grado di gestire le operazioni di
-      conferimento delle coordinate dei civici o l'aggiornamento, inserimento o
-      eliminazione dei civici stessi su DB ANNCSU. Lo script estrae da DB
-      PostGIS un elenco di record corrispondenti ai civici che si vogliono
-      aggiornare. Le operazioni svolte sono dettagliate in uno specifico file di
-      log generato al termine del processo di conferimento."
+    shortDescription: PDND authentication client and ANNCSU address synchronization tool
+    longDescription: PHP script that manages the submission and update of address
+      coordinates to the ANNCSU database using PostgreSQL/PostGIS data
+      extraction and OAuth2 authentication. It logs all operations performed
+      during the synchronization process.
     documentation: https://github.com/ComuneMontelupoFiorentino/ANNCSU-PostgreSQL-PDND-sync
     features:
-      - Gestione ambiente di test e di produzione
-      - Autenticazione OAuth2 con JWT Bearer Token
-      - Estrazione dati da DB PostgreSQL
-      - Conferimento Coordinate dei civici ad ANNCSU
-      - Inserimento, Aggiornamento, Eliminazione civici da ANNCSU
-      - Log completo delle operazioni
-      - Aggiornamento tabella PostgreSQL con feed
+      - Test and Production Environment Management
+      - OAuth 2.0 Authentication with JWT Bearer Token
+      - Extracting data from a PostgreSQL database
+      - Submission of House Number Coordinates to ANNCSU
+      - Adding, Updating, and Deleting House Numbers from ANNCSU
+      - Complete operation log
+      - Updating a PostgreSQL table using a feed
 legal:
   license: EUPL-1.2
 maintenance:
   type: internal
   contacts:
-    - name: Enrico Gullì
+    - name: Enrico
       email: e.gulli@comune.montelupo-fiorentino.fi.it
+      phone: "0571917559"
 localisation:
   localisationReady: true
   availableLanguages:
-    - it
     - it-IT
