@@ -20,6 +20,7 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
         "purpose_id",
         "client_id",
         "key_id",
+        "modi_key_id",
         "user_location",
         "LoA",
         "user_id",
@@ -139,19 +140,19 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
     protected $metodo;
 
     /**
-     * Nome del campo del record accesso che identifica l'operazione da eseguire sul civico (solo per funzionalità di aggiornamento)
+     * Nome del campo del record accesso che identifica l'operazione da eseguire sul civico (solo per funzionalit� di aggiornamento)
      * @var string
      */
     protected $tipo_operazione;
 
     /**
-     * Nome della colonna booleana presente nella tabella tabella_operazioni che indica se il civico è allineato con DB ANNCSU 
+     * Nome della colonna booleana presente nella tabella tabella_operazioni che indica se il civico � allineato con DB ANNCSU 
      * @var string
      */
     protected $allineato_tabella_operazioni;
 
     /**
-     * Nome della colonna booleana presente nella tabella tabella_accessi che indica se il civico è allineato con DB ANNCSU 
+     * Nome della colonna booleana presente nella tabella tabella_accessi che indica se il civico � allineato con DB ANNCSU 
      * @var string
      */
     protected $allineato_tabella_accessi;
@@ -160,26 +161,26 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
 
     /**
      * Dimensione massima per ogni blocco di esecuzione
-     * Es: Se il limite è 500, i dati vengono conferiti in 3 blocchi, i primi due da 200 record ciascuno, l'ultimo da 100
+     * Es: Se il limite � 500, i dati vengono conferiti in 3 blocchi, i primi due da 200 record ciascuno, l'ultimo da 100
      * @var string
      */
     private $chunkSize = 500;
 
     /**
      * Inizializza il servizio di conferimento coordinate ed esegue i controlli necessari su configurazione, 
-     * chiave privata e connettività a DB
+     * chiave privata e connettivit� a DB
      * 
      * @param array         $config         Configurazione del client per il servizio richiesto
      * @param array         $options        Opzioni di lancio aggiuntive
      * @param string        $environment    Ambiente di lancio
      * @param ProcessLog    $logInstance    Istanza globale del processo di log
-     * @param boolean       $dryRun         Modalità dry run attiva
+     * @param boolean       $dryRun         Modalit� dry run attiva
      */
     public function __construct($config, $options, $environment, $logInstance, $dryRun) 
     {
         parent::__construct($config,$options, $environment,'aggiornamento', $dryRun);
 
-        // set delle proprietà della classe
+        // set delle propriet� della classe
         foreach ($this->config as $confKey => $confValue) {
             if(property_exists($this, $confKey)){
                 $this->$confKey = $confValue;
@@ -194,10 +195,13 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
         // controllo configurazione
         $this->initConfiguration($this->configuration_keys);
         
-        // controllo esistenza chiave privata
+        // controllo esistenza chiave privata (voucher)
         $this->setPrivateKey();
 
-        // controllo connettività a db
+        // controllo esistenza chiave privata ModI (Agid-JWT-Signature/TrackingEvidence)
+        $this->setModiPrivateKey();
+
+        // controllo connettivit� a db
         $this->checkPostgreServiceFile();
 
         $this->checkDbTables();
@@ -389,7 +393,7 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
         $this->logInstance->printProcessLog("TOTALE CIVICI ESTRATTI NON CANCELLATI:.....".count(array_keys($deleteResults['error'])));
         $this->logInstance->printProcessLog(ANNCSUUtilities::chunkProgrsForDisplay(array_keys($deleteResults['error'])), false);
         if($valuesDeleted && !$dbDeleted) {
-            $this->logInstance->printProcessLog("ATTENZIONE! I civici sono stati cancellati correttamente da ANNCSU ma non è stata aggiornata la tabella operazioni a DB");
+            $this->logInstance->printProcessLog("ATTENZIONE! I civici sono stati cancellati correttamente da ANNCSU ma non � stata aggiornata la tabella operazioni a DB");
         }
 
         $this->logInstance->newLine();
@@ -400,7 +404,7 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
         $this->logInstance->printProcessLog("TOTALE CIVICI ESTRATTI NON AGGIORNATI:.....".count(array_keys($updateResults['error'])));
         $this->logInstance->printProcessLog(ANNCSUUtilities::chunkProgrsForDisplay(array_keys($updateResults['error'])), false);
         if($valuesUpdated && !$dbUpdated) {
-            $this->logInstance->printProcessLog("ATTENZIONE! I civici sono stati aggiornati correttamente su ANNCSU ma non è stato correttamente aggiornato il DB");
+            $this->logInstance->printProcessLog("ATTENZIONE! I civici sono stati aggiornati correttamente su ANNCSU ma non � stato correttamente aggiornato il DB");
         }
 
         $this->logInstance->newLine();
@@ -411,7 +415,7 @@ class ANNCSUAggiornamento extends ANNCSUGenericService {
         $this->logInstance->printProcessLog("TOTALE CIVICI ESTRATTI NON INSERITI:.....".count(array_keys($insertResults['error'])));
         $this->logInstance->printProcessLog(ANNCSUUtilities::chunkProgrsForDisplay(array_keys($insertResults['error'])), false);
         if($valuesInserted && !$dbInserted) {
-            $this->logInstance->printProcessLog("ATTENZIONE! I civici sono stati inseriti correttamente su ANNCSU ma non è stato correttamente aggiornato il DB");
+            $this->logInstance->printProcessLog("ATTENZIONE! I civici sono stati inseriti correttamente su ANNCSU ma non � stato correttamente aggiornato il DB");
         }
 
         return;
