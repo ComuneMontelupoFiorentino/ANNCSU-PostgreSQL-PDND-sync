@@ -24,7 +24,7 @@ class ANNCSUGenericService {
     protected $environment;
 
     /**
-     * Modalità simulazione attiva
+     * Modalit� simulazione attiva
      * @var boolean 
      */
     protected $dryRun;
@@ -46,6 +46,32 @@ class ANNCSUGenericService {
      * @var string 
      */
     protected $privateKeyPath;
+
+    /**
+     * Costante rappresentativa del nome della file contenente la chiave privata ModI
+     * (dedicata alla firma di Agid-JWT-Signature e Agid-JWT-TrackingEvidence, distinta
+     * dalla chiave usata per il client_assertion/voucher)
+     * @var string 
+     */
+    protected $modiPrivateKeyFileName = 'modi_key.priv';
+
+    /**
+     * Percorso assoluto del file della chiave privata ModI
+     * @var string 
+     */
+    protected $modiKeyPath;
+
+    /**
+     * contenuto della chiave privata ModI per la firma di Agid-JWT-Signature/TrackingEvidence
+     * @var string 
+     */
+    protected $modi_pKeyPem;
+
+    /**
+     * kid della chiave pubblica ModI depositata su PDND (distinto dal kid del voucher)
+     * @var string 
+     */
+    protected $modi_key_id;
 
     /**
      * Costante rappresentativa del nome base del servizio presente nel file pg_service.conf per la connessione al db Postgis
@@ -78,30 +104,30 @@ class ANNCSUGenericService {
     protected $aud;
 
     /**
-     * identificativo chiave pubblica, si recupera da piattaforma PagoPA-Interoperabilità
+     * identificativo chiave pubblica, si recupera da piattaforma PagoPA-Interoperabilit�
      * @var string 
      */
     protected $key_id;
 
     /**
-     *  identificativo univoco del soggetto che inoltra la richiesta, si recupera da piattaforma PagoPA-Interoperabilità
+     *  identificativo univoco del soggetto che inoltra la richiesta, si recupera da piattaforma PagoPA-Interoperabilit�
      * @var string
      */
     protected $iss;
 
     /**
-     * parametro univoco del soggetto che inoltra la richiesta, si recupera da piattaforma PagoPA-Interoperabilità
+     * parametro univoco del soggetto che inoltra la richiesta, si recupera da piattaforma PagoPA-Interoperabilit�
      * @var string
      */
     protected $sub;
 
     /**
-     * @var string identificativo univoco della finalità, si recupera da piattaforma PagoPA-Interoperabilità
+     * @var string identificativo univoco della finalit�, si recupera da piattaforma PagoPA-Interoperabilit�
      */
     protected $purpose_id;
 
     /**
-     * identificativo univoco del client, spesso coincide con issuer, si recupera da piattaforma PagoPA-Interoperabilità
+     * identificativo univoco del client, spesso coincide con issuer, si recupera da piattaforma PagoPA-Interoperabilit�
      * @var string 
      */
     protected $client_id;
@@ -167,7 +193,7 @@ class ANNCSUGenericService {
      * @param array     $options        Opzioni di lancio aggiuntive
      * @param string    $environment    Ambiente di lancio
      * @param string    $serviceType    Tipo di servizio richiesto
-     * @param boolean   $dryRun         Modalità dry run attiva
+     * @param boolean   $dryRun         Modalit� dry run attiva
      */
     public function __construct($config, $options, $environment, $serviceType, $dryRun)
     {
@@ -182,9 +208,9 @@ class ANNCSUGenericService {
     }
 
     /**
-     * Controlla la validità della configurazione per il servizio richiesto. In caso di invalidità interrompe l'esecuzione
+     * Controlla la validit� della configurazione per il servizio richiesto. In caso di invalidit� interrompe l'esecuzione
      *
-     * @param array     $mandatoryKeys  Array con le chiavi delle proprietà richieste per il servizio specificato
+     * @param array     $mandatoryKeys  Array con le chiavi delle propriet� richieste per il servizio specificato
      * 
      * @return void 
      * @throws Exception
@@ -195,7 +221,9 @@ class ANNCSUGenericService {
             if(!in_array($mKey,$confKeys)) throw new Exception("voce $mKey mancante, controllare la configurazione del client");
         }
 
-        $this->issued = time();
+        // usa l'ora esatta letta dal server PDND (header HTTP Date) invece dell'orologio locale,
+        // per non dipendere dalla sincronizzazione NTP del sistema (spesso bloccata da firewall)
+        $this->issued = ANNCSUUtilities::getAccurateTimestamp($this->auth_url);
         $this->delta = 300;
     }
 
@@ -224,8 +252,33 @@ class ANNCSUGenericService {
     }
 
     /**
+     * Controlla l'esistenza della chiave privata ModI (dedicata alla firma di Agid-JWT-Signature
+     * e Agid-JWT-TrackingEvidence) e imposta il percorso al file corrispondente.
+     * Se non trovata, interrompe l'esecuzione.
+     * 
+     * @return void 
+     * @throws Exception
+     */
+    public function setModiPrivateKey()
+    {
+        $modiKeyPath = ANNCSU_CERTS_PATH.$this->serviceType."_".$this->environment."/".$this->modiPrivateKeyFileName;
+        if (!file_exists($modiKeyPath)) {
+            throw new Exception("Percorso chiave privata ModI non trovato. $modiKeyPath");
+        }
+
+        $this->modiKeyPath = $modiKeyPath;
+
+        $key = file_get_contents($this->modiKeyPath);
+        if($key){
+            $this->modi_pKeyPem = $key;
+        } else {
+            throw new Exception("Impossibile recuperare la chiave privata ModI per la firma delle richieste");
+        }
+    }
+
+    /**
      * Controlla l'esistenza del file  pg_service.conf nella cartella della configurazione e
-     * l'esistenza del servizio per la funzionalità di esecuzione richiesta.
+     * l'esistenza del servizio per la funzionalit� di esecuzione richiesta.
      * In caso di successo imposta la variabile d'ambiente con il percorso del file, altrimenti interrompe l'esecuzione
      * 
      * @return void 
@@ -295,8 +348,10 @@ class ANNCSUGenericService {
             "audit_encode" => ""
         );
 
+        // Agid-JWT-TrackingEvidence (pattern AUDIT_REST_02): firmato con la chiave ModI,
+        // DISTINTA da quella usata per il client_assertion/voucher
         $audit_header = array(
-            "kid" => $this->key_id,
+            "kid" => $this->modi_key_id,
             "alg" => "RS256",
             "typ" => "JWT"
         );
@@ -306,6 +361,7 @@ class ANNCSUGenericService {
             "userLocation" => $this->user_location,
             "LoA" => $this->LoA,
             "iss" => $this->iss,
+            "sub" => $this->sub,
             "aud" => $this->service_url,
             "purposeId" => $this->purpose_id,
             "dnonce" => ANNCSUUtilities::getDNonce(),
@@ -315,7 +371,7 @@ class ANNCSUGenericService {
             "exp" => $this->issued + $this->delta
         );
 
-        $audit_encode = ANNCSUUtilities::signJWT($audit_header,$audit_payload, $this->pKeyPem);
+        $audit_encode = ANNCSUUtilities::signJWT($audit_header,$audit_payload, $this->modi_pKeyPem);
 
         $hashed_assertion = openssl_digest($audit_encode, 'sha256');
 
@@ -562,27 +618,25 @@ class ANNCSUGenericService {
             "nbf" => $this->issued,
             "exp" => $this->issued + $this->delta,
             "signed_headers" => array(
-                array("Digest" => $digest),
-                array("Content-Type" => 'application/json'),
-                array("Content-Encoding" => 'UTF-8')
+                array("digest" => $digest),
+                array("content-type" => 'application/json')
             )
         );
+        // Agid-JWT-Signature (pattern INTEGRITY_REST_02): firmato con la chiave ModI,
+        // DISTINTA da quella usata per il client_assertion/voucher
         $signature = ANNCSUUtilities::signJWT(array(
-            "kid" => $this->key_id,
+            "kid" => $this->modi_key_id,
             "alg" => "RS256",
             "typ" => "JWT"
-        ),$payload_update_coord, $this->pKeyPem);
+        ),$payload_update_coord, $this->modi_pKeyPem);
 
         $headers = array(
             'Content-Type: application/json',
-            'Accept: application/json',
-            'Content-Encoding: UTF-8',
+            'Content-Encoding: identity',
             'Digest: '.$digest,
             'Authorization: Bearer '.$token,
             'Agid-JWT-TrackingEvidence: '.$audit_encode,
             'Agid-JWT-Signature: '.$signature,
-            'User-Agent: php/8.3',
-            'Accept-Encoding: gzip, compress, deflate'
         );
 
         return array(
@@ -592,7 +646,7 @@ class ANNCSUGenericService {
     }
 
     public function printProcessParameters(){
-        $this->logInstance->printProcessLog("MODALITÀ SIMULAZIONE ATTIVA:");
+        $this->logInstance->printProcessLog("MODALIT� SIMULAZIONE ATTIVA:");
         $this->logInstance->printProcessLog("Ambiente di lancio:........$this->environment",false);
         $this->logInstance->printProcessLog("Servizio:..................$this->serviceType",false);
         $this->logInstance->printProcessLog("Parametri configurazione:".PHP_EOL,false);
