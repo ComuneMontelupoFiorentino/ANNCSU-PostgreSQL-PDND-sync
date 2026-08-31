@@ -37,7 +37,7 @@ maintenance:
   contacts:
     - name: Enrico
       email: e.gulli@comune.montelupo-fiorentino.fi.it
-      phone: "0571917559"
+      phone: "+390571917559"
 localisation:
   localisationReady: true
   availableLanguages:
