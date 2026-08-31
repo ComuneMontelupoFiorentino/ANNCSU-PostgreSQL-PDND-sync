@@ -1,7 +1,7 @@
 publiccodeYmlVersion: 0.5.0
 name: ANNCSU-PostgreSQL-PDND-sync
 url: https://github.com/ComuneMontelupoFiorentino/ANNCSU-PostgreSQL-PDND-sync
-softwareVersion: "0.1.0"
+softwareVersion: "0.1.4"
 releaseDate: 2026-01-15
 platforms:
   - linux
@@ -11,7 +11,7 @@ organisation:
 usedBy:
   - Comune di Montelupo Fiorentino
   - Comune di Dalmine
-developmentStatus: beta
+developmentStatus: stable
 softwareType: service
 description:
   en-US:
