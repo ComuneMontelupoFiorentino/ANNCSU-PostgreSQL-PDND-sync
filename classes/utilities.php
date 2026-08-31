@@ -42,6 +42,55 @@ class ANNCSUUtilities {
     }
 
     /**
+     * Recupera un timestamp accurato interrogando l'header HTTP "Date" di un server esterno
+     * raggiungibile, per compensare eventuali derive dell'orologio locale (es. NTP bloccato
+     * da firewall aziendale, sistema senza permessi sudo per risincronizzarlo).
+     * In caso di qualsiasi errore, ricade sull'orologio locale (time()).
+     *
+     * @param string $referenceUrl  URL (anche solo l'host) di un server esterno raggiungibile
+     *                              e sincronizzato, usato solo per leggere l'header Date
+     * @return int  timestamp UNIX
+     */
+    public static function getAccurateTimestamp($referenceUrl)
+    {
+        $host = parse_url($referenceUrl, PHP_URL_HOST);
+        if (!$host) {
+            $host = $referenceUrl;
+        }
+        if (!$host) {
+            return time();
+        }
+
+        try {
+            $ch = curl_init("https://$host/");
+            curl_setopt($ch, CURLOPT_NOBODY, true);
+            curl_setopt($ch, CURLOPT_HEADER, true);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+            $response = curl_exec($ch);
+            $curlError = curl_errno($ch);
+            curl_close($ch);
+
+            if ($curlError || $response === false) {
+                return time();
+            }
+
+            if (preg_match('/^Date:\s*(.+)$/mi', $response, $matches)) {
+                $remoteTime = strtotime(trim($matches[1]));
+                if ($remoteTime !== false) {
+                    return $remoteTime;
+                }
+            }
+        } catch (Exception $e) {
+            // ricade silenziosamente sull'orologio locale
+        }
+
+        return time();
+    }
+
+    /**
      * Spezza un array in n parti uguali di dimensioni definite dal parametro $size. 
      * Restituisce poi le parti concatenate in un unico array.
      * 
