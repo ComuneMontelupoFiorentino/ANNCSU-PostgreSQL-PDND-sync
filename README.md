@@ -1,5 +1,7 @@
 # CONFERIMENTO COORDINATE E AGGIORNAMENTO CIVICI SU DB ANNCSU
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+
 La presente funzionalità è costituita da un insieme di script in linguaggio PHP in grado di gestire le operazioni di conferimento delle coordinate dei civici o l'aggiornamento dei civici stessi su DB ANNCSU. Lo script estrae da DB PostGIS un elenco di record corrispondenti ai civici che si vogliono aggiornare. Le operazioni svolte sono dettagliate in uno specifico file di log generato al termine del processo di conferimento.
 
 **Keywords**: ANNCSU, API, PDND, PostgreSQL, Riuso, PA
@@ -11,6 +13,7 @@ La presente funzionalità è costituita da un insieme di script in linguaggio PH
 - database `Postgresql` con estensione `PostGIS` in cui sono salvati i dati dei civici
 - Servizi richiesti attivi e configurati su piattaforma `Interoperabilità PagoPA`
 - Lo script è compatibile con la `versione 1` (v1) del servizio di conferimento coordinate e di aggiornamento civici.
+- **Il server deve poter raggiungere in uscita (HTTPS, porta 443) gli host `auth.interop.pagopa.it` (o `auth.uat.interop.pagopa.it` per l'ambiente di collaudo) e `modipa.agenziaentrate.gov.it` (o `modipa-val.agenziaentrate.it` per il collaudo)**. Se il server è dietro un firewall con whitelist, verificare che questi domini siano autorizzati (vedi anche la sezione [Risoluzione problemi](#risoluzione-problemi) più sotto).
 
 ## Installazione
 
@@ -56,6 +59,15 @@ Lo script è predisposto per contattare 2 tipi di servizi PDND differenti:
 
 Il primo step per poter utilizzare lo script è assicurarsi di aver correttamente abilitato il servizio che si desidera contattare (es per il conferimento coordinate si tratterà del servizio  `ANNCSU - Aggiornamento coordinate`) su piattaforma Interoperabilità PagoPa. Questo comprende l'inoltro della `richiesta` di accesso al servizio, la creazione della `finalità` necessaria all'utilizzo dello stesso, la registrazione del `client API e-service` e il caricamento del `materiale crittografico` necessario. Per i dettagli inerenti alle procedure relative a questa configurazione si rimanda al [manuale operativo](https://docs.pagopa.it/interoperabilita-1) predisposto da PagoPa.
 
+> IMPORTANTE — due chiavi crittografiche, non una sola
+>
+> I servizi ANNCSU esposti da Agenzia delle Entrate su PDND adottano il pattern **ModI con informazioni aggiuntive** (`AUDIT_REST_02` + `INTEGRITY_REST_02`), che prevede l'uso di **due chiavi RSA distinte** per lo stesso client e-service:
+>
+> - una prima chiave (**chiave voucher**) usata per firmare il `client_assertion` con cui si ottiene il voucher da PDND (`auth.interop.pagopa.it`)
+> - una **seconda chiave, dedicata** (**chiave ModI**), usata per firmare gli header `Agid-JWT-Signature` e `Agid-JWT-TrackingEvidence` inviati direttamente all'e-service ANNCSU
+>
+> Le due chiavi vanno entrambe generate e caricate nel portachiavi dello **stesso** client e-service su PDND (Fruizione → I tuoi client e-service → \[client] → Chiavi Pubbliche). GovWay (il gateway usato da Agenzia delle Entrate/SOGEI) impone questa separazione in produzione: usare la stessa chiave per entrambi gli scopi porta tipicamente all'errore `400 InteroperabilityInvalidRequest`, con un messaggio generico che non indica la causa reale.
+
 ### Caricamento del materiale crittografico per l'utilizzo dello script
 
 Il materiale crittografico associato al servizio richiesto su piattaforma PDND deve anche essere caricato all'interno di una specifica cartella dentro la cartella principale `certs`.
@@ -67,7 +79,17 @@ Occorre quindi:
     > ESEMPIO
     >
     > Ho ablitato il servizio di conferimento coordinate su piattaforma di collaudo PDND, dovrò creare una cartella dentro `certs` denominata `coordinate_test`
-2. All'interno della cartella appena creata occorre caricare i 3 file dei certificati creati (`.pub`, `.priv` e `.pem`) e rinominarli in `key.priv`, `key.pub` e `key.pem`.
+2. All'interno della cartella appena creata occorre caricare i 3 file della **chiave voucher** (`.pub`, `.priv` e `.pem`) e rinominarli in `key.priv`, `key.pub` e `key.pem`.
+3. Generare una **seconda coppia di chiavi RSA 2048 bit**, dedicata alla firma ModI, con gli stessi comandi (vedi sotto), e caricare i 3 file risultanti nella stessa cartella rinominandoli in `modi_key.priv`, `modi_key.pub` e `modi_key.pem`.
+
+Comandi per generare una coppia di chiavi (da ripetere due volte, una per la chiave voucher e una per la chiave ModI, cambiando il nome del file di destinazione):
+
+```bash
+openssl genrsa -out key.pem 2048
+openssl rsa -in key.pem -pubout -out key.pub
+openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt -in key.pem -out key.priv
+chmod 600 key.pem key.priv
+```
 
 Al termine della configurazione di esempio, la struttura della cartella certs dovrebbe apparire come segue:
 
@@ -77,15 +99,22 @@ Al termine della configurazione di esempio, la struttura della cartella certs do
         |── key.pem
         |── key.priv
         |── key.pub
+        |── modi_key.pem
+        |── modi_key.priv
+        |── modi_key.pub
 ```
 
-La chiave pubblica `key.pub` deve naturalmente essere la stessa che è stata associata al servizio richiesto su piattaforma PDND.
+Sia `key.pub` che `modi_key.pub` devono essere caricate su piattaforma PDND, nel portachiavi dello stesso client e-service; PDND assegnerà a ciascuna un `kid` distinto, da riportare rispettivamente nei parametri `key_id` e `modi_key_id` del file di configurazione (vedi sezione successiva).
 
 ### Configurazione del servizio di collegamento al database PostGIS
 
 Configurare il file `config/pg_service.conf` con i parametri di connessione a db.
 Il file può contenere due configurazioni `pg_test` e `pg_prod`. Qualsiasi esecuzione che preveda l'utilizzo di ambiente di test (ovvero esecuzioni su ambiente di collaudo PDND) utilizzeranno la connessione `pg_test`. Ugualmente i servizi richiesti su ambiente di produzione utilizzeranno la connessione `pg_prod`.
 Questa distinzione è stata introdotta per garantire una maggiore flessibilità in caso si vogliano avere due database distinti per i due ambienti. Nulla vieta di impostare la stessa configurazione sia per test che per produzione.
+
+> ATTENZIONE
+>
+> Il flag `--test`/`--prod` dello script determina **solo** quale connessione database (`pg_test`/`pg_prod`) e quale sezione ini (`{alias}_test`/`{alias}_prod`) vengono usate. Se nella sezione `{alias}_test` del file ini vengono impostati per errore gli endpoint PDND/ANNCSU di **produzione**, lo script lancerà comunque `--test` scrivendo dati reali sull'archivio nazionale. Verificare sempre, prima del primo utilizzo, che gli endpoint `auth_url`/`aud`/`service_url` della sezione test puntino realmente all'ambiente di collaudo (`auth.uat.interop.pagopa.it`, `modipa-val.agenziaentrate.it`), e non siano una semplice copia della sezione di produzione.
 
 Per i dettagli sulla struttura e sulla configurazione del file pg_service.conf consultare il [manuale](https://www.postgresql.org/docs/current/libpq-pgservice.html) Postgres dedicato.
 
@@ -199,7 +228,8 @@ I campi **OBBLIGATORI** comuni ad ogni servizio da riportare per ciascuna sezion
 | service_url     | Base URI del servizio richiesto  Specifico per ogni servizio, ottenibile consultando  le informazioni tecniche di ciascun e-service abilitato                                                              | Piattaforma PagoPA                                                              |
 | purpose_id      | Si trova su piattaforma PagoPA nelle informazioni relative  al client API e-service. E' univoco per ogni f inalità                                                                                         | Piattaforma PagoPA                                                              |
 | client_id       | Identificativo univoco del client API e-service.  Si trova su piattaforma PagoPA nelle informazioni relative  al client API e-service. E' univoco per ogni client                                          | Piattaforma PagoPA                                                              |
-| key_id          | Corrisponde al kid.  Si trova su piattaforma PagoPA nelle informazioni relative  al client API e-service. E' univoco per ogni client                                                                       | Piattaforma PagoPA                                                              |
+| key_id          | Corrisponde al kid della **chiave voucher** (vedi sopra).  Si trova su piattaforma PagoPA nelle informazioni relative  al client API e-service. E' univoco per ogni client                                 | Piattaforma PagoPA                                                              |
+| modi_key_id     | Corrisponde al kid della **chiave ModI**, distinta dalla chiave voucher (vedi sezione "Caricamento del materiale crittografico" sopra). Necessaria per firmare gli header `Agid-JWT-Signature` e `Agid-JWT-TrackingEvidence` | Piattaforma PagoPA, dopo il caricamento della seconda chiave pubblica            |
 | user_location   | Parametro non meglio documentato, indica la postazione da cui viene eseguito il servizio                                                                                                                   | Valore fisso impostato come "pc-1"                                              |
 | LoA             | Parametro indicativo del metodo di autenticazione che l'utente utilizza per connnettersi alla piattaforma selfacare.pagopa.it                                                                              | Valore fisso impostato come "LoA2 / SPID"                                       |
 | user_id         | Identificativo univoco dell'utente interno al dominio del  fruitore che ha determinato l'esigenza della request.
@@ -208,10 +238,12 @@ I campi **OBBLIGATORI** comuni ad ogni servizio da riportare per ciascuna sezion
 #### Campi della configurazione obbligatori da definire per il servizio di conferimento coordinate
 
 | **Parametro**   | **Descrizione**                                                                                                                                                                                      | **Dove trovarlo**                                       |
-|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------|
+|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | schema          | schema del database in cui sono presenti le tabelle/viste dei civici                                                                                                                                 | Definito internamente in base all'infrastruttura del db |
 | vista_accessi     | Nome della vista utilizzata per recuperare i record da leggere                                                                                                                                       | Definito internamente in base all'infrastruttura del db |
 | tabella_accessi    | Nome della tabella contenente la lista dei civici                                                                                                                                                    | Definito internamente in base all'infrastruttura del db |
+| id_tabella_accessi | Nome della colonna presente sulla tabella tabella_accessi che identifica univocamente il civico (chiave primaria)                                                                                    | Definito internamente in base all'infrastruttura del db |
+| id_vista_accessi   | Nome della colonna presente nella vista vista_accessi che identifica univocamente il civico, coincidente con id_tabella_accessi                                                                     | Definito internamente in base all'infrastruttura del db |
 | allineato_tabella_accessi | Nome della colonna presente sulla tabella tabella_accessi che identifica se un civico è stato conferito o meno                                                                                          | Definito internamente in base all'infrastruttura del db |
 | progr_vista_accessi     | Nome della colonna nella vista vista_accessi che contiene  il valore del progressivo_accesso anncsu                                                                                                    | Definito internamente in base all'infrastruttura del db |
 | coord_x   | Nome della colonna nell vista vista_accessi che contiene il valore la coordinata x del civico. Il valore deve essere espresso in coordinate WGS84 e deve essere arrotondato all settima cifra decimale | Definito internamente in base all'infrastruttura del db |
@@ -222,10 +254,13 @@ I campi **OBBLIGATORI** comuni ad ogni servizio da riportare per ciascuna sezion
 #### Campi della configurazione obbligatori da definire per il servizio di aggiornamento accessi
 
 | **Parametro**           | **Descrizione**                                                                                                                                                                                           | **Dove trovarlo**                                        |
-|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
+|-------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|
 | schema                  | schema del database in cui sono presenti le tabelle/viste dei civici                                                                                                                                      | Definito internamente in base all'infrastruttura del db  |
 | tabella_operazioni           | Nome della tabella di appoggio da cui leggere i record da processare                                                                                                                                      | Definito internamente in base all'infrastruttura del db  |
 | tabella_accessi            | Nome della tabella contenente la lista dei civici                                                                                                                                                         | Definito internamente in base all'infrastruttura del db  |
+| id_tabella_accessi | Nome della colonna presente sulla tabella tabella_accessi che identifica univocamente il civico (chiave primaria)                                                                                    | Definito internamente in base all'infrastruttura del db  |
+| id_tabella_operazioni | Nome della colonna presente sulla tabella tabella_operazioni che identifica univocamente la riga di operazione (chiave primaria)                                                                     | Definito internamente in base all'infrastruttura del db  |
+| id_civico_operazioni | Nome della colonna presente sulla tabella tabella_operazioni che contiene il riferimento (foreign key) a id_tabella_accessi                                                                          | Definito internamente in base all'infrastruttura del db  |
 | progr_naz         | Nome della colonna presente sulla tabella tabella_operazioni  che contiene il progressivo nazionale dell'odonimo                                                                                               | Definito internamente in base all'infrastruttura  del db |
 | progr_tabella_operazioni     | Nome della colonna presente sulla tabella tabella_operazioni   che contiene il progressivo accesso del civico                                                                                                  | Definito internamente in base all'infrastruttura del db  |
 | progr_tabella_accessi      |Nome della colonna presente sulla tabella tabella_accessi che contiene il progressivo accesso del civico                                                                                               | Definito internamente in base all'infrastruttura del db  |
@@ -252,6 +287,7 @@ service_url=https://modipa.agenziaentrate.gov.it/govway/rest/in/AgenziaEntrate-P
 purpose_id=xxxxxxxx-yyyy-zzzz-jjjj-xxxxxxxxxxxx
 client_id=zzzzzzzz-hhhh-tttt-gggg-xxxxxxxxxxxx
 key_id=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+modi_key_id=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
 user_location=pc-1
 LoA=LoA2 / SPID
 user_id=MARIO ROSSI
@@ -280,6 +316,7 @@ service_url=https://modipa-val.agenziaentrate.it/govway/rest/in/AgenziaEntrate-P
 purpose_id=xxxxxxxx-yyyy-zzzz-jjjj-xxxxxxxxxxxx
 client_id=zzzzzzzz-hhhh-tttt-gggg-xxxxxxxxxxxx
 key_id=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+modi_key_id=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
 user_location=pc-1
 LoA=LoA2 / SPID
 user_id=MARIO ROSSI
@@ -353,6 +390,39 @@ $> php anncsu.php --test -a
 Lo script è in modalità verbosa per default, significa che durante l'esecuzione notifica in console i vari step e passaggi che sta eseguendo. Al termine di ciascuna esecuzione viene poi prodotto un file testuale nella cartella `logs` denominato `{timestamp} {alias}_{ambiente}.log`.
 
 All'interno del file si possono trovare tutti gli output dettagliati sugli accessi che sono stati processati e sull'esito dell'operazione per ciascun record.
+
+## Risoluzione problemi
+
+### Errore `400 InteroperabilityInvalidRequest` (o simile, generico) sulla chiamata all'e-service
+
+Questo errore viene restituito dal gateway GovWay quando la richiesta non supera i controlli del profilo di interoperabilità ModI, e per motivi di sicurezza **non specifica quale controllo esatto è fallito**. Cause più comuni riscontrate:
+
+1. **Chiave ModI mancante o uguale a quella del voucher** — vedi sopra, sezione "Caricamento del materiale crittografico". Verificare che `modi_key_id` sia valorizzato e diverso (consigliato) da `key_id`, e che corrisponda a una chiave effettivamente caricata sul portachiavi del client.
+2. **Orologio di sistema disallineato (clock skew)** — i JWT usati (voucher, `Agid-JWT-Signature`, `Agid-JWT-TrackingEvidence`) hanno una validità di pochi minuti (`nbf`/`exp`). Se l'orologio del server è anche solo di qualche decina di secondi avanti o indietro rispetto all'ora reale (tipicamente perché il servizio NTP è bloccato da un firewall aziendale), GovWay può rifiutare la richiesta con lo stesso errore generico. Verificare con:
+   ```bash
+   date -u
+   curl -sI --max-time 8 https://auth.interop.pagopa.it | grep -i '^date:'
+   ```
+   Le due date devono coincidere entro pochi secondi. Se il server non può essere risincronizzato via NTP (es. porta UDP 123 bloccata dal firewall e nessun accesso amministrativo per sbloccarla), lo script dalla versione corrente compensa automaticamente leggendo l'ora esatta dall'header HTTP `Date` del server PDND ad ogni esecuzione (funzione `ANNCSUUtilities::getAccurateTimestamp()`), quindi questo problema non dovrebbe più presentarsi anche con un orologio locale non sincronizzato — ma resta comunque buona norma segnalare e correggere l'NTP a livello di infrastruttura.
+3. **Header `Content-Encoding` non valido** — se si personalizzano gli header della richiesta, ricordare che `UTF-8` non è un valore HTTP `Content-Encoding` valido (è un charset, non uno schema di codifica); usare `identity` o omettere l'header.
+4. **Sezione ini "test" che punta in realtà alla produzione** — vedi l'avviso nella sezione "Configurazione del servizio di collegamento al database PostGIS" più sopra.
+
+In caso il problema persista dopo aver verificato questi punti, contattare l'assistenza tecnica di Agenzia delle Entrate/SOGEI all'indirizzo `infopdnd_anncsu@sogei.it`, allegando il valore `govway_id` presente nella risposta di errore (identifica univocamente la richiesta nei log del gateway, permettendo una diagnosi lato server che dall'esterno non è possibile ottenere).
+
+### Errore applicativo `ORA-01403 - nessun dato trovato` (o simile)
+
+A differenza del precedente, questo è un errore restituito dal database applicativo di ANNCSU dopo che la richiesta è stata accettata e autenticata correttamente: significa che il `progr_civico` (o l'accesso identificato dai dati inviati) non è stato trovato lato ANNCSU per l'operazione di aggiornamento/cancellazione richiesta. Cause tipiche:
+
+- il civico non è mai stato effettivamente conferito su ANNCSU nonostante risulti tale nei dati locali (es. per un'esecuzione fallita in precedenza il cui esito non è stato registrato correttamente)
+- il `progr_civico` salvato in locale è obsoleto o errato
+
+Prima di correggere manualmente i dati locali, è consigliabile verificare l'effettiva esistenza del civico su ANNCSU tramite il servizio di consultazione PDND, oppure — se non disponibile — tramite l'endpoint pubblico open data (senza autenticazione):
+
+```bash
+curl -s "https://anncsu.open.agenziaentrate.gov.it/age-inspire/opendata/anncsu/querydata.php?resource=accessi&progressivoodonimo=<PROGR_NAZIONALE_VIA>&accesso=<NUMERO_CIVICO>"
+```
+
+Nota: questo endpoint filtra solo sul numero civico e non distingue civici con lo stesso numero ma esponente diverso (es. "12" e "12A" possono comparire come un solo risultato); in caso di ambiguità è necessario verificare per altra via quale sia l'accesso corretto.
 
 ### Come attribuire
 A titolo d'esempio, è sufficiente indicare, ove opportuno, "anncsu-postgresql-sync-pdnd Copyright © 2025 Comune di Montelupo Fiorentino."
