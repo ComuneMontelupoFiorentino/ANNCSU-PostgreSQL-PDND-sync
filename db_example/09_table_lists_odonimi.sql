@@ -10,12 +10,6 @@ CREATE TABLE stradario.dug_list (
     dug_name VARCHAR(200) UNIQUE NOT NULL
 );
 
--- Lista delle pavimentazioni
-CREATE TABLE stradario.pav_list (
-    id serial primary key,
-    pav_name VARCHAR(200) UNIQUE NOT NULL
-);
-
 -- Lista delle opzioni delibera
 CREATE TABLE stradario.flag_delibera_list (
     id serial primary key,
