@@ -24,6 +24,9 @@ class ANNCSUUtilities {
             case 'a':
                 $confType = 'aggiornamento';
             break;
+            case 'o':
+                $confType = 'odonimi';
+            break;
             default:
             break;
         }
@@ -39,6 +42,28 @@ class ANNCSUUtilities {
         if(!$config || !is_array($config) || !array_key_exists($config_section,$config)) return null;
 
         return $config[$config_section];
+    }
+
+    /**
+     * Converte una data restituita da PostgreSQL (tipicamente in formato ISO 'YYYY-MM-DD')
+     * nel formato richiesto dalle API ANNCSU ('dd/mm/yyyy'). Gestisce in modo tollerante
+     * valori vuoti/null e formati già corretti o con orario incluso.
+     *
+     * @param string|null $value valore data così come restituito da pg_fetch_all
+     * @return string data in formato dd/mm/yyyy, oppure stringa vuota se $value è vuoto/non valido
+     */
+    public static function formatDateForANNCSU($value)
+    {
+        if ($value === null || trim((string)$value) === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($value);
+        if ($timestamp === false) {
+            return '';
+        }
+
+        return date('d/m/Y', $timestamp);
     }
 
     /**
