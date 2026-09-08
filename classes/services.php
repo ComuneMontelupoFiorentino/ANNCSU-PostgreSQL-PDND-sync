@@ -408,13 +408,63 @@ class ANNCSUGenericService {
         curl_setopt($ch, CURLOPT_HTTPHEADER, array('content-type: application/x-www-form-urlencoded'));
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
         curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+        // timeout di connessione breve: PDND risolve su pi� IP in round-robin, se uno risultasse
+        // irraggiungibile (es. non incluso in una whitelist di firewall basata su IP statici anzich�
+        // su FQDN) non vogliamo restare bloccati per minuti prima di poter riprovare
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
 
-        $response = curl_exec($ch);
-        if (curl_errno($ch)) {
+        // *** WORKAROUND TEMPORANEO ***
+        // Il DNS di auth.interop.pagopa.it risolve su pi� IP (round-robin), e uno di questi risulta
+        // bloccato dal firewall del server. La cache del resolver di sistema tende a restituire
+        // ripetutamente lo stesso ordine, quindi anche forzando una nuova risoluzione a livello di
+        // curl si finisce spesso per pescare comunque l'IP bloccato. Fino a quando l'IT non whitelista
+        // correttamente l'intero range di IP di PDND (idealmente con una regola a FQDN dinamico),
+        // forziamo esplicitamente curl a connettersi solo agli IP noti come raggiungibili.
+        // ATTENZIONE: questi IP possono cambiare nel tempo (rotazione lato AWS) - se in futuro il
+        // voucher tornasse a fallire in modo sistematico, per prima cosa verificare con
+        // `dig +short auth.interop.pagopa.it` se sono cambiati, e aggiornare l'elenco sotto
+        // (o rimuovere questo blocco una volta risolto il problema di firewall).
+        // NOTA: PDND risolve auth.interop.pagopa.it su pi� IP che ruotano frequentemente
+        // (verificato: set di IP completamente diverso a distanza di ~15 minuti). Fissare IP
+        // specifici via CURLOPT_RESOLVE non � quindi una soluzione praticabile - ci si affida
+        // invece a timeout brevi + retry con nuova risoluzione DNS (sotto), che tollerano un IP
+        // temporaneamente irraggiungibile senza doverlo conoscere in anticipo. Se il problema di
+        // firewall persiste, l'unica soluzione strutturale � una regola basata su FQDN dinamico
+        // (o sull'intero range CIDR del provider), non sui singoli IP.
+
+        $maxAttempts = 5;
+        $attempt = 0;
+        $response = false;
+        $error_msg = null;
+
+        while ($attempt < $maxAttempts) {
+            $attempt++;
+            // forza una nuova risoluzione DNS ad ogni tentativo, per avere una nuova possibilit�
+            // di pescare un IP raggiungibile in caso di round-robin con IP parzialmente bloccati
+            curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
+            curl_setopt($ch, CURLOPT_DNS_CACHE_TIMEOUT, 0);
+
+            $response = curl_exec($ch);
+            $curlErrno = curl_errno($ch);
+
+            if (!$curlErrno) {
+                $error_msg = null;
+                break;
+            }
+
+            // errore di CONNESSIONE (non di risposta applicativa): probabile IP irraggiungibile,
+            // vale la pena riprovare. Codici tipici: 7=connessione rifiutata, 28=timeout, 6=DNS
             $error_msg = curl_error($ch);
+            if (in_array($curlErrno, [6,7,28], true) && $attempt < $maxAttempts) {
+                $this->logInstance->printProcessLog("Tentativo $attempt/$maxAttempts di connessione a $this->auth_url fallito ($error_msg), ritento con nuova risoluzione DNS...");
+                continue;
+            }
+
+            break;
         }
-        
-        if(isset($error_msg)){
+
+        if(isset($error_msg) && $error_msg){
             $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $this->logInstance->printErrorLog($http_status.PHP_EOL.$error_msg.PHP_EOL);
             curl_close($ch);
@@ -422,7 +472,7 @@ class ANNCSUGenericService {
             $http_status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
             if($http_status >= 300) {
                 // error
-                $this->logInstance->printErrorLog("Errore in fase di recupero voucher $http_status");
+                $this->logInstance->printErrorLog("Errore in fase di recupero voucher $http_status: $response");
                 curl_close($ch);
             } else {
                 try {
@@ -506,7 +556,13 @@ class ANNCSUGenericService {
             curl_setopt($curlHandle, CURLOPT_SSL_VERIFYPEER, 0);
             curl_setopt($curlHandle, CURLINFO_HEADER_OUT, true); 
             curl_setopt($curlHandle, CURLOPT_SHARE, $shareHandle);
-            
+            // timeout brevi: come per il recupero voucher, PDND/ANNCSU risolvono su pi� IP in
+            // round-robin e un IP occasionalmente irraggiungibile non deve bloccare l'esecuzione
+            // per minuti (vedi stesso fix applicato a getPDNDDigestVoucher)
+            curl_setopt($curlHandle, CURLOPT_CONNECTTIMEOUT, 8);
+            curl_setopt($curlHandle, CURLOPT_TIMEOUT, 30);
+            curl_setopt($curlHandle, CURLOPT_DNS_CACHE_TIMEOUT, 0);
+
             curl_multi_add_handle($multiHandle, $curlHandle);
 
             $curlHandles[$uniq_id] = $curlHandle;
@@ -574,6 +630,7 @@ class ANNCSUGenericService {
         return match($serviceType){
             'C' => "$this->service_url/gestionecoordinate",
             'A' => "$this->service_url/accessi",
+            'O' => "$this->service_url/odonimi",
         };
     }
 
