@@ -22,10 +22,11 @@ require_once(ANNCSU_CLASS_PATH.'utilities.php');
 require_once(ANNCSU_CLASS_PATH.'process_log.php');
 require_once(ANNCSU_CLASS_PATH.'coordinate.php');
 require_once(ANNCSU_CLASS_PATH.'aggiornamento.php');
+require_once(ANNCSU_CLASS_PATH.'odonimi.php');
 
 // recupero parametri di lancio dello script
 $options = getopt(
-    "hcsa",
+    "hcsao",
     array("test","prod","dry-run")
 );
 
@@ -51,14 +52,14 @@ $dryRun = array_key_exists('dry-run', $options);
 $environment = array_key_exists('test',$options) ? 'test' : 'prod';
 
 // definizione dell'utilità da lanciare, conferimento o aggiornamento accessi
-$utilityMode = ['c','a'];
+$utilityMode = ['c','a','o'];
 $optionsKey = array_keys($options);
 $filteredOptions = array_filter($utilityMode, function($u) use($optionsKey){
     return in_array($u,$optionsKey);
 });
 
 if(count($filteredOptions) != 1){
-    $log->consoleError("Specificare univocamente una funzione tra -c o -a, -c = conferimento coordinate, -a = aggiornamento civici");
+    $log->consoleError("Specificare univocamente una funzione tra -c, -a o -o: -c = conferimento coordinate, -a = aggiornamento civici, -o = gestione odonimi");
     die();
 }
 
@@ -80,6 +81,9 @@ switch($utility){
     break;
     case 'a':
         $service='ANNCSUAggiornamento';
+    break;
+    case 'o':
+        $service='ANNCSUOdonimi';
     break;
     default:
     break;
