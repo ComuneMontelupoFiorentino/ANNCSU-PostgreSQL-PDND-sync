@@ -501,69 +501,6 @@ Lo script è in modalità verbosa per default, significa che durante l'esecuzion
 
 All'interno del file si possono trovare tutti gli output dettagliati sugli accessi che sono stati processati e sull'esito dell'operazione per ciascun record.
 
-## Risoluzione problemi
-
-### Errore `400 InteroperabilityInvalidRequest` (o simile, generico) sulla chiamata all'e-service
-
-Questo errore viene restituito dal gateway GovWay quando la richiesta non supera i controlli del profilo di interoperabilità ModI, e per motivi di sicurezza **non specifica quale controllo esatto è fallito**. Cause più comuni riscontrate:
-
-1. **Chiave ModI mancante o uguale a quella del voucher** — vedi sopra, sezione "Caricamento del materiale crittografico". Verificare che `modi_key_id` sia valorizzato e diverso (consigliato) da `key_id`, e che corrisponda a una chiave effettivamente caricata sul portachiavi del client.
-2. **Orologio di sistema disallineato (clock skew)** — i JWT usati (voucher, `Agid-JWT-Signature`, `Agid-JWT-TrackingEvidence`) hanno una validità di pochi minuti (`nbf`/`exp`). Se l'orologio del server è anche solo di qualche decina di secondi avanti o indietro rispetto all'ora reale (tipicamente perché il servizio NTP è bloccato da un firewall aziendale), GovWay può rifiutare la richiesta con lo stesso errore generico. Verificare con:
-   ```bash
-   date -u
-   curl -sI --max-time 8 https://auth.interop.pagopa.it | grep -i '^date:'
-   ```
-   Le due date devono coincidere entro pochi secondi. Se il server non può essere risincronizzato via NTP (es. porta UDP 123 bloccata dal firewall e nessun accesso amministrativo per sbloccarla), lo script dalla versione corrente compensa automaticamente leggendo l'ora esatta dall'header HTTP `Date` del server PDND ad ogni esecuzione (funzione `ANNCSUUtilities::getAccurateTimestamp()`), quindi questo problema non dovrebbe più presentarsi anche con un orologio locale non sincronizzato — ma resta comunque buona norma segnalare e correggere l'NTP a livello di infrastruttura.
-3. **Header `Content-Encoding` non valido** — se si personalizzano gli header della richiesta, ricordare che `UTF-8` non è un valore HTTP `Content-Encoding` valido (è un charset, non uno schema di codifica); usare `identity` o omettere l'header.
-4. **Sezione ini "test" che punta in realtà alla produzione** — vedi l'avviso nella sezione "Configurazione del servizio di collegamento al database PostGIS" più sopra.
-
-In caso il problema persista dopo aver verificato questi punti, contattare l'assistenza tecnica di Agenzia delle Entrate/SOGEI all'indirizzo `infopdnd_anncsu@sogei.it`, allegando il valore `govway_id` presente nella risposta di errore (identifica univocamente la richiesta nei log del gateway, permettendo una diagnosi lato server che dall'esterno non è possibile ottenere).
-
-### Errore applicativo `ORA-01403 - nessun dato trovato` (o simile)
-
-A differenza del precedente, questo è un errore restituito dal database applicativo di ANNCSU dopo che la richiesta è stata accettata e autenticata correttamente: significa che il `progr_civico` (o l'accesso identificato dai dati inviati) non è stato trovato lato ANNCSU per l'operazione di aggiornamento/cancellazione richiesta. Cause tipiche:
-
-- il civico non è mai stato effettivamente conferito su ANNCSU nonostante risulti tale nei dati locali (es. per un'esecuzione fallita in precedenza il cui esito non è stato registrato correttamente)
-- il `progr_civico` salvato in locale è obsoleto o errato
-
-Prima di correggere manualmente i dati locali, è consigliabile verificare l'effettiva esistenza del civico su ANNCSU tramite il servizio di consultazione PDND, oppure — se non disponibile — tramite l'endpoint pubblico open data (senza autenticazione):
-
-```bash
-curl -s "https://anncsu.open.agenziaentrate.gov.it/age-inspire/opendata/anncsu/querydata.php?resource=accessi&progressivoodonimo=<PROGR_NAZIONALE_VIA>&accesso=<NUMERO_CIVICO>"
-```
-
-Nota: questo endpoint filtra solo sul numero civico e non distingue civici con lo stesso numero ma esponente diverso (es. "12" e "12A" possono comparire come un solo risultato); in caso di ambiguità è necessario verificare per altra via quale sia l'accesso corretto. Per gli odonimi esiste una risorsa analoga (`resource=odonimi`), verificare il parametro esatto tramite `?help_show` sullo stesso endpoint.
-
-### Timeout intermittenti su `Failed to connect ... Connection timed out` durante il recupero del voucher o la chiamata all'e-service
-
-I domini PDND/ANNCSU risolvono su **più indirizzi IP in round-robin** (verificato: anche 3-4 IP diversi per lo stesso host, che possono cambiare completamente nell'arco di 15-20 minuti). Se il firewall del server whitelista questi domini tramite una lista di IP statici anziché una regola a FQDN dinamico, è possibile che **solo alcuni** degli IP effettivamente restituiti dal DNS risultino raggiungibili, causando fallimenti intermittenti e apparentemente casuali (a seconda di quale IP viene pescato dalla risoluzione DNS in quel momento).
-
-Il codice (`getPDNDDigestVoucher()` e `execMultiPDNDDigestRequest()` in `classes/services.php`) è già predisposto per tollerare questo scenario: timeout di connessione brevi (8 secondi) e fino a 5 tentativi automatici con nuova risoluzione DNS ad ogni tentativo, invece di restare bloccato per minuti su un singolo IP irraggiungibile. Se il problema si presenta con una frequenza che rende l'esecuzione poco affidabile anche con questi accorgimenti, l'unica soluzione strutturale è correggere la configurazione del firewall (regola basata su FQDN o sull'intero range CIDR del provider, non su singoli IP che possono cambiare).
-
-Diagnosi consigliata, da eseguire sul server:
-```bash
-# individua tutti gli IP attualmente restituiti
-dig +short auth.interop.pagopa.it
-
-# testa ciascun IP singolarmente con timeout breve, per capire quale/i sia/siano bloccati
-for ip in $(dig +short auth.interop.pagopa.it); do
-  echo "=== $ip ==="
-  curl -sI --max-time 8 --resolve auth.interop.pagopa.it:443:$ip https://auth.interop.pagopa.it
-  echo "exit code: $?"
-done
-```
-
-### `Operazione fallita. Errore Controlli: L'odonimo non e stato modificato` (servizio odonimi)
-
-A differenza degli errori precedenti, questo **non è un problema tecnico**: è ANNCSU che rifiuta un'operazione di aggiornamento (`R`) perché, confrontando i dati inviati con quelli già registrati, non rileva alcuna differenza sostanziale (ANNCSU normalizza probabilmente anche differenze minori come spazi doppi/superflui prima del confronto). Capita tipicamente quando un record viene rimesso in coda come `R` senza che nessun campo effettivamente rilevante per ANNCSU sia cambiato (es. un salvataggio della scheda senza modifiche reali, o una modifica che tocca solo colonne locali non inviate ad ANNCSU).
-
-Non è necessario reinviarlo: basta marcarlo come allineato, dato che il dato su ANNCSU è già corretto:
-```sql
-UPDATE <tabella_odonimi> SET <colonna_allineato> = true WHERE <chiave_primaria> = <id>;
-```
-
-Se il fenomeno si ripete frequentemente, è consigliabile far scattare la coda di sincronizzazione (trigger o logica applicativa) solo quando cambia effettivamente uno dei campi che vengono inviati ad ANNCSU, non ad ogni salvataggio incondizionato della riga — questo evita anche di consumare inutilmente la quota giornaliera di chiamate (particolarmente limitata per questo servizio, 50/giorno).
-
 ## Strumenti di test e debug
 
 Oltre allo script principale `anncsu.php`, sono disponibili alcuni script indipendenti utili in fase di prima configurazione o di debug, pensati per **non modificare mai il database** (salvo dove esplicitamente indicato) e quindi sicuri da eseguire ripetutamente anche in produzione:
