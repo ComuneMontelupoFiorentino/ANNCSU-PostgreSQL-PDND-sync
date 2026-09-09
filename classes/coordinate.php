@@ -19,6 +19,7 @@ class ANNCSUCoordinates extends ANNCSUGenericService {
         "purpose_id",
         "client_id",
         "key_id",
+        "modi_key_id",
         "user_location",
         "LoA",
         "user_id",
@@ -138,8 +139,11 @@ class ANNCSUCoordinates extends ANNCSUGenericService {
         // controllo configurazione
         $this->initConfiguration($this->configuration_keys);
         
-        // controllo esistenza chiave privata
+        // controllo esistenza chiave privata (voucher)
         $this->setPrivateKey();
+
+        // controllo esistenza chiave privata ModI (Agid-JWT-Signature/TrackingEvidence)
+        $this->setModiPrivateKey();
 
         // controllo connettività a db
         $this->checkPostgreServiceFile();
