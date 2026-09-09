@@ -99,6 +99,6 @@ Per utilizzare questi script è necessario installare:
 > Dovrà preliminarmente essere creato il database.
 > Esempio **CREATE DATABASE toponomastica**.
 
-Esegui gli script contenuti nei file **.sql** nelle sequenza indicata (01->10)
+Esegui gli script contenuti nei file **.sql** nelle sequenza indicata (01->11)
 
 
