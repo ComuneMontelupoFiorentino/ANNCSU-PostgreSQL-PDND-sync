@@ -1,4 +1,4 @@
-# CONFERIMENTO COORDINATE E AGGIORNAMENTO CIVICI SU DB ANNCSU
+# CONFERIMENTO COORDINATE, AGGIORNAMENTO CIVICI E ODONIMI SU DB ANNCSU
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 
@@ -28,6 +28,7 @@ Lo script è predisposto per contattare 2 tipi di servizi PDND differenti:
 |-----------------------------------|---------------|------------|
 | ANNCSU - Aggiornamento coordinate | coordinate    |     SI     |
 | ANNCSU - Aggiornamento accessi    | aggiornamento |     SI     |
+| ANNCSU - Aggiornamento odonimi    | odonimi       |     SI     |
 
 
 > IMPORTANTE
@@ -67,6 +68,23 @@ Il primo step per poter utilizzare lo script è assicurarsi di aver correttament
 > - una **seconda chiave, dedicata** (**chiave ModI**), usata per firmare gli header `Agid-JWT-Signature` e `Agid-JWT-TrackingEvidence` inviati direttamente all'e-service ANNCSU
 >
 > Le due chiavi vanno entrambe generate e caricate nel portachiavi dello **stesso** client e-service su PDND (Fruizione → I tuoi client e-service → \[client] → Chiavi Pubbliche). GovWay (il gateway usato da Agenzia delle Entrate/SOGEI) impone questa separazione in produzione: usare la stessa chiave per entrambi gli scopi porta tipicamente all'errore `400 InteroperabilityInvalidRequest`, con un messaggio generico che non indica la causa reale.
+
+### Generazione automatica del materiale crittografico
+
+Invece di generare le chiavi a mano con `openssl` (vedi comandi più sotto se preferite farlo manualmente), è disponibile uno strumento dedicato che genera entrambe le coppie di chiavi in un colpo solo, con verifica di conformità automatica:
+
+```bash
+php genera_chiavi.php --name=aggiornamento_test
+```
+
+Crea `certs/aggiornamento_test/` con tutti e 6 i file (`key.pem/priv/pub` e `modi_key.pem/priv/pub`), verificando che ogni chiave generata sia una RSA valida di almeno 2048 bit e che pubblica/privata corrispondano tra loro. **Non sovrascrive mai** una cartella già esistente, per evitare di invalidare per errore chiavi già caricate e in uso su PDND. Opzioni disponibili:
+
+```bash
+php genera_chiavi.php --name=coordinate_prod --key-size=4096   # dimensione chiave personalizzata
+php genera_chiavi.php --name=odonimi_test --no-modi-key        # solo chiave voucher, senza quella ModI
+```
+
+Al termine, lo script ricorda i passi successivi (caricare le chiavi pubbliche su PDND e riportare i `kid` ottenuti in `key_id`/`modi_key_id` nell'ini).
 
 ### Caricamento del materiale crittografico per l'utilizzo dello script
 
@@ -275,6 +293,87 @@ I campi **OBBLIGATORI** comuni ad ogni servizio da riportare per ciascuna sezion
 | allineato_tabella_accessi  | Nome della colonna booleana presente nella tabella tabella_accessi che indica se il civico è allineato con DB ANNCSU                                                                                         | Definito internamente in base all'infrastruttura del db  |
 | codcom                  | Codice del comune                                                                                                                                                                                         | es. F551                                                 |
 
+#### Campi della configurazione obbligatori da definire per il servizio di gestione odonimi
+
+A differenza degli altri due servizi, per gli odonimi è possibile — se la propria tabella principale contiene già tutti i campi descrittivi richiesti dall'API — usare **la stessa tabella** sia come `tabella_odonimi` che come `tabella_operazioni`, semplicemente ripetendo lo stesso nome per entrambi i parametri (vedi esempio più sotto). In tal caso `id_tabella_odonimi`, `id_tabella_operazioni` e `id_odonimo_operazioni` coincideranno tutti con la chiave primaria di quell'unica tabella.
+
+| **Parametro**           | **Descrizione**                                                                                                                                                                                           | **Dove trovarlo**                                        |
+|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------|
+| schema                  | schema del database in cui è presente la tabella degli odonimi                                                                                                                                            | Definito internamente in base all'infrastruttura del db  |
+| tabella_odonimi         | Nome della tabella principale contenente gli odonimi (analoga a "civici" per il servizio accessi)                                                                                                        | Definito internamente in base all'infrastruttura del db  |
+| tabella_operazioni      | Nome della tabella di appoggio da cui leggere i record da processare (può coincidere con tabella_odonimi, vedi sopra)                                                                                    | Definito internamente in base all'infrastruttura del db  |
+| id_tabella_odonimi      | Nome della colonna presente sulla tabella tabella_odonimi che identifica univocamente l'odonimo (chiave primaria)                                                                                        | Definito internamente in base all'infrastruttura del db  |
+| id_tabella_operazioni   | Nome della colonna presente sulla tabella tabella_operazioni che identifica univocamente la riga di operazione (chiave primaria)                                                                         | Definito internamente in base all'infrastruttura del db  |
+| id_odonimo_operazioni   | Nome della colonna presente sulla tabella tabella_operazioni che contiene il riferimento (foreign key) a id_tabella_odonimi                                                                              | Definito internamente in base all'infrastruttura del db  |
+| progr_tabella_operazioni | Nome della colonna presente sulla tabella tabella_operazioni che contiene il progressivo nazionale dell'odonimo (NULL per gli inserimenti non ancora processati, obbligatorio per aggiornamento/soppressione) | Definito internamente in base all'infrastruttura del db  |
+| progr_tabella_odonimi   | Nome della colonna presente sulla tabella tabella_odonimi che contiene il progressivo nazionale dell'odonimo                                                                                             | Definito internamente in base all'infrastruttura del db  |
+| codice_comunale         | Nome della colonna contenente la codifica comunale dell'odonimo (facoltativa)                                                                                                                            | Definito internamente in base all'infrastruttura del db  |
+| dug                     | Nome della colonna contenente il DUG (es. "VIA", "PIAZZA")                                                                                                                                                | Definito internamente in base all'infrastruttura del db  |
+| denom_delibera          | Nome della colonna contenente la denominazione da delibera                                                                                                                                                | Definito internamente in base all'infrastruttura del db  |
+| denom_in_lingua_1       | Nome della colonna contenente la denominazione in lingua 1 (comuni bi/trilingue, facoltativa)                                                                                                            | Definito internamente in base all'infrastruttura del db  |
+| denom_in_lingua_2       | Nome della colonna contenente la denominazione in lingua 2 (comuni trilingue, facoltativa)                                                                                                               | Definito internamente in base all'infrastruttura del db  |
+| denom_localita          | Nome della colonna contenente la denominazione della località (facoltativa - se valorizzata deve corrispondere a una località effettivamente censita ISTAT per il comune, altrimenti ANNCSU la rifiuta)  | Definito internamente in base all'infrastruttura del db  |
+| provv_data              | Nome della colonna contenente la data del provvedimento                                                                                                                                                   | Definito internamente in base all'infrastruttura del db  |
+| provv_protocollo        | Nome della colonna contenente il protocollo del provvedimento                                                                                                                                             | Definito internamente in base all'infrastruttura del db  |
+| provv_flag_delibera     | Nome della colonna contenente il flag_delibera (valori ammessi: '0','1','2','3','4')                                                                                                                      | Definito internamente in base all'infrastruttura del db  |
+| autpref_data            | Nome della colonna contenente la data dell'autorizzazione prefettura (facoltativa)                                                                                                                        | Definito internamente in base all'infrastruttura del db  |
+| autpref_protocollo      | Nome della colonna contenente il protocollo dell'autorizzazione prefettura (facoltativa)                                                                                                                  | Definito internamente in base all'infrastruttura del db  |
+| data_valid_amm          | Nome della colonna contenente la data di validità amministrativa (facoltativa, default alla data corrente)                                                                                               | Definito internamente in base all'infrastruttura del db  |
+| tipo_operazione         | Nome della colonna che identifica il tipo di operazione da eseguire. ENUM I=Inserimento, R=Aggiornamento, S=Soppressione                                                                                  | Definito internamente in base all'infrastruttura del db  |
+| allineato_tabella_operazioni | Nome della colonna booleana presente nella tabella tabella_operazioni che indica se l'odonimo è allineato con DB ANNCSU                                                                             | Definito internamente in base all'infrastruttura del db  |
+| allineato_tabella_odonimi | Nome della colonna booleana presente nella tabella tabella_odonimi che indica se l'odonimo è allineato con DB ANNCSU                                                                                    | Definito internamente in base all'infrastruttura del db  |
+| codcom                  | Codice del comune                                                                                                                                                                                         | es. F551                                                 |
+
+> IMPORTANTE — regole sui campi facoltativi (`provvedimento`, `aut_prefettura`), verificate empiricamente contro le risposte reali di ANNCSU
+>
+> - **`provvedimento`** (`data`+`protocollo`): obbligatorio **esclusivamente** in base al valore di `flag_delibera`, indipendentemente dal tipo di operazione (I/R/S):
+>   - `flag_delibera` = `'0'` o `'1'` → `data` e `protocollo` **obbligatori**
+>   - qualunque altro valore (anche vuoto/NULL) → `data` e `protocollo` **non devono essere presenti affatto** nel JSON inviato (l'intero oggetto va omesso, non inviato con campi vuoti)
+> - **`aut_prefettura`** (`data_pref`+`protocollo_pref`): sempre facoltativo. Se entrambi i campi sono vuoti, l'intero oggetto va **omesso** dal JSON — inviarlo con solo uno dei due campi valorizzato (o con l'altro come stringa vuota) viene rifiutato da ANNCSU con un fuorviante errore di "formato data non valido", anche quando la data non è affatto presente.
+> - Le date lette da PostgreSQL (formato `YYYY-MM-DD`) vengono convertite automaticamente nel formato richiesto da ANNCSU (`dd/mm/yyyy`) da `ANNCSUUtilities::formatDateForANNCSU()`.
+
+Esempio di configurazione per il servizio di gestione odonimi in ambiente di produzione (tabella singola: `tabella_odonimi` e `tabella_operazioni` coincidono):
+
+```ìni
+[anncsu_odonimi_prod]
+iss=zzzzzzzz-hhhh-tttt-gggg-xxxxxxxxxxxx
+sub=zzzzzzzz-hhhh-tttt-gggg-xxxxxxxxxxxx
+aud=auth.interop.pagopa.it/client-assertion
+auth_url=https://auth.interop.pagopa.it/token.oauth2
+service_url=https://modipa.agenziaentrate.gov.it/govway/rest/in/AgenziaEntrate-PDND/anncsu-aggiornamento-odonimi/v1
+purpose_id=xxxxxxxx-yyyy-zzzz-jjjj-xxxxxxxxxxxx
+client_id=zzzzzzzz-hhhh-tttt-gggg-xxxxxxxxxxxx
+key_id=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+modi_key_id=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+user_location=pc-1
+LoA=LoA2 / SPID
+user_id=MARIO ROSSI
+schema=stradario
+tabella_odonimi=odonimi
+tabella_operazioni=odonimi
+id_tabella_odonimi=odo_id
+id_tabella_operazioni=odo_id
+id_odonimo_operazioni=odo_id
+progr_tabella_operazioni=odo_progressivo_nazionale
+progr_tabella_odonimi=odo_progressivo_nazionale
+codice_comunale=odo_id
+dug=odo_dug
+denom_delibera=odo_duf
+denom_in_lingua_1=odo_denom_in_lingua_1
+denom_in_lingua_2=odo_denom_in_lingua_2
+denom_localita=odo_loc
+provv_data=odo_provvedimento_data
+provv_protocollo=odo_provvedimento_protocollo
+provv_flag_delibera=odo_flag_delibera
+autpref_data=odo_aut_prefettura_data
+autpref_protocollo=odo_protocollo_pref
+data_valid_amm=odo_data_valid_amm
+tipo_operazione=odo_operazione
+allineato_tabella_operazioni=odo_allineato
+allineato_tabella_odonimi=odo_allineato
+codcom=F551
+```
+
 Di seguito un esempio di configurazione per il servizio di conferimento coordinate in ambiete di produzione:
 
 ```ìni
@@ -364,8 +463,9 @@ Parametri operativi:
 
 - `-c`, conferimento coordinate
 - `-a`, aggiornamento civici
+- `-o`, gestione odonimi
 
-in caso nessuna o entrambe le opzioni vengano specificate, lo script terminerà con errore.
+in caso nessuna o più di una opzione vengano specificate, lo script terminerà con errore.
 
 Esempio di lancio dello script per conferimento coordinate in ambiente di produzione:
 
@@ -379,11 +479,21 @@ Esempio di lancio dello script per aggiornamento civici in ambiente di test:
 $> php anncsu.php --test -a
 ```
 
+Esempio di lancio dello script per gestione odonimi in ambiente di produzione:
+
+```cli
+$> php anncsu.php --prod -o
+```
+
 > NOTA
 >
 >Lo script è impostato per eseguire un numero di conferimenti massimo 
 >pari al liite giornaliero di chiamate imposto dal piattaforma PDND che 
 >attualmente è pari a 2000 chiamate per entrambi i servizi.
+
+> ATTENZIONE — la soglia giornaliera NON è uguale per tutti i servizi
+>
+> Il valore sopra vale per `aggiornamento` e `coordinate` (2000 chiamate/giorno per fruitore, verificabile sulla scheda tecnica dell'e-service su PDND). Il servizio **`odonimi` ha una soglia molto più bassa: 50 chiamate/giorno** — il parametro `$limit` nella relativa classe (`classes/odonimi.php`) è impostato di conseguenza. Prima di modificare questi valori, verificare sempre la soglia attuale mostrata sulla scheda tecnica PDND del proprio client, perché può cambiare nel tempo.
 
 ### Logs
 
@@ -422,7 +532,50 @@ Prima di correggere manualmente i dati locali, è consigliabile verificare l'eff
 curl -s "https://anncsu.open.agenziaentrate.gov.it/age-inspire/opendata/anncsu/querydata.php?resource=accessi&progressivoodonimo=<PROGR_NAZIONALE_VIA>&accesso=<NUMERO_CIVICO>"
 ```
 
-Nota: questo endpoint filtra solo sul numero civico e non distingue civici con lo stesso numero ma esponente diverso (es. "12" e "12A" possono comparire come un solo risultato); in caso di ambiguità è necessario verificare per altra via quale sia l'accesso corretto.
+Nota: questo endpoint filtra solo sul numero civico e non distingue civici con lo stesso numero ma esponente diverso (es. "12" e "12A" possono comparire come un solo risultato); in caso di ambiguità è necessario verificare per altra via quale sia l'accesso corretto. Per gli odonimi esiste una risorsa analoga (`resource=odonimi`), verificare il parametro esatto tramite `?help_show` sullo stesso endpoint.
+
+### Timeout intermittenti su `Failed to connect ... Connection timed out` durante il recupero del voucher o la chiamata all'e-service
+
+I domini PDND/ANNCSU risolvono su **più indirizzi IP in round-robin** (verificato: anche 3-4 IP diversi per lo stesso host, che possono cambiare completamente nell'arco di 15-20 minuti). Se il firewall del server whitelista questi domini tramite una lista di IP statici anziché una regola a FQDN dinamico, è possibile che **solo alcuni** degli IP effettivamente restituiti dal DNS risultino raggiungibili, causando fallimenti intermittenti e apparentemente casuali (a seconda di quale IP viene pescato dalla risoluzione DNS in quel momento).
+
+Il codice (`getPDNDDigestVoucher()` e `execMultiPDNDDigestRequest()` in `classes/services.php`) è già predisposto per tollerare questo scenario: timeout di connessione brevi (8 secondi) e fino a 5 tentativi automatici con nuova risoluzione DNS ad ogni tentativo, invece di restare bloccato per minuti su un singolo IP irraggiungibile. Se il problema si presenta con una frequenza che rende l'esecuzione poco affidabile anche con questi accorgimenti, l'unica soluzione strutturale è correggere la configurazione del firewall (regola basata su FQDN o sull'intero range CIDR del provider, non su singoli IP che possono cambiare).
+
+Diagnosi consigliata, da eseguire sul server:
+```bash
+# individua tutti gli IP attualmente restituiti
+dig +short auth.interop.pagopa.it
+
+# testa ciascun IP singolarmente con timeout breve, per capire quale/i sia/siano bloccati
+for ip in $(dig +short auth.interop.pagopa.it); do
+  echo "=== $ip ==="
+  curl -sI --max-time 8 --resolve auth.interop.pagopa.it:443:$ip https://auth.interop.pagopa.it
+  echo "exit code: $?"
+done
+```
+
+### `Operazione fallita. Errore Controlli: L'odonimo non e stato modificato` (servizio odonimi)
+
+A differenza degli errori precedenti, questo **non è un problema tecnico**: è ANNCSU che rifiuta un'operazione di aggiornamento (`R`) perché, confrontando i dati inviati con quelli già registrati, non rileva alcuna differenza sostanziale (ANNCSU normalizza probabilmente anche differenze minori come spazi doppi/superflui prima del confronto). Capita tipicamente quando un record viene rimesso in coda come `R` senza che nessun campo effettivamente rilevante per ANNCSU sia cambiato (es. un salvataggio della scheda senza modifiche reali, o una modifica che tocca solo colonne locali non inviate ad ANNCSU).
+
+Non è necessario reinviarlo: basta marcarlo come allineato, dato che il dato su ANNCSU è già corretto:
+```sql
+UPDATE <tabella_odonimi> SET <colonna_allineato> = true WHERE <chiave_primaria> = <id>;
+```
+
+Se il fenomeno si ripete frequentemente, è consigliabile far scattare la coda di sincronizzazione (trigger o logica applicativa) solo quando cambia effettivamente uno dei campi che vengono inviati ad ANNCSU, non ad ogni salvataggio incondizionato della riga — questo evita anche di consumare inutilmente la quota giornaliera di chiamate (particolarmente limitata per questo servizio, 50/giorno).
+
+## Strumenti di test e debug
+
+Oltre allo script principale `anncsu.php`, sono disponibili alcuni script indipendenti utili in fase di prima configurazione o di debug, pensati per **non modificare mai il database** (salvo dove esplicitamente indicato) e quindi sicuri da eseguire ripetutamente anche in produzione:
+
+- **`genera_chiavi.php`** — genera il materiale crittografico (chiave voucher + chiave ModI) per un nuovo servizio/ambiente. Vedi sezione "Generazione automatica del materiale crittografico" più sopra.
+- **`test_voucher.php`** — testa in isolamento il solo recupero del voucher PDND (`php test_voucher.php --test -a`), senza toccare l'e-service né il database. Utile per isolare problemi di autenticazione/chiavi dal resto della pipeline.
+- **`test_single_record.php`** / **`test_single_record_odonimi.php`** — eseguono **una sola chiamata reale** verso l'e-service (accessi/coordinate o odonimi rispettivamente) usando un singolo record estratto dal database, stampando body, header e risposta completi. **Non aggiornano il database** al termine (né `allineato`, né i progressivi assegnati), così è possibile ripetere il test sullo stesso record finché non si è sicuri dell'esito, prima di lasciare che sia lo script ufficiale a processarlo e marcarlo definitivamente. Richiedono sempre `--test` o `--prod` esplicito, senza default silenziosi. Esempio: `php test_single_record_odonimi.php --prod --op=I --s-id=123`.
+- **`debug_client_assertion.php`** — stampa a schermo (senza fare chiamate di rete) i valori usati per costruire il `client_assertion` del voucher, utile per un controllo visivo rapido rispetto al simulatore ufficiale PDND.
+
+> NOTA
+>
+> Questi script duplicano volutamente parte della logica delle classi principali per restare completamente isolati e "sicuri" da eseguire in qualsiasi momento. Se si modifica la logica di costruzione delle richieste in `classes/services.php` o nelle classi dei singoli servizi, ricordarsi di verificare che questi script di test restino coerenti.
 
 ### Come attribuire
 A titolo d'esempio, è sufficiente indicare, ove opportuno, "anncsu-postgresql-sync-pdnd Copyright © 2025 Comune di Montelupo Fiorentino."
