@@ -1,6 +1,6 @@
 # CONFERIMENTO COORDINATE, AGGIORNAMENTO CIVICI E ODONIMI SU DB ANNCSU
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
+[![License: EUPL-1.2](https://img.shields.io/badge/License-EUPL--1.2-blue.svg)](LICENSE)
 
 La presente funzionalità è costituita da un insieme di script in linguaggio PHP in grado di gestire le operazioni di conferimento delle coordinate dei civici o l'aggiornamento dei civici stessi su DB ANNCSU. Lo script estrae da DB PostGIS un elenco di record corrispondenti ai civici che si vogliono aggiornare. Le operazioni svolte sono dettagliate in uno specifico file di log generato al termine del processo di conferimento.
 
@@ -516,3 +516,11 @@ Oltre allo script principale `anncsu.php`, sono disponibili alcuni script indipe
 
 ### Come attribuire
 A titolo d'esempio, è sufficiente indicare, ove opportuno, "anncsu-postgresql-sync-pdnd Copyright © 2025 Comune di Montelupo Fiorentino."
+
+## Parte di Prosit
+
+Questo componente fa parte di **[Prosit](https://github.com/ComuneMontelupoFiorentino/prosit)**,
+il Sistema Informativo Territoriale del Comune di Montelupo Fiorentino. Nel repository
+[prosit](https://github.com/ComuneMontelupoFiorentino/prosit) ci sono l'architettura, l'elenco
+di tutti i componenti (topic [`prosit`](https://github.com/search?q=org%3AComuneMontelupoFiorentino+topic%3Aprosit&type=repositories))
+e le versioni che funzionano insieme.

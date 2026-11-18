@@ -161,6 +161,9 @@ class ProcessLog {
     public function writeMessageToFile()
     {
         if ($this->logMessage) {
+            if (!is_dir(dirname($this->logFile))) {
+                @mkdir(dirname($this->logFile), 0775, true);
+            }
             $h = file_put_contents($this->logFile,$this->logMessage);
             if($h === false) {
                 $this->consoleError("Impossibile scrivere il file di log ");

@@ -572,12 +572,19 @@ class ANNCSUGenericService {
         // esecuzione multi curl
         do {
             $mrc = curl_multi_exec($multiHandle, $pendingRequests);
-        } while ($pendingRequests > 0);
+            // attesa sui socket invece del ciclo a vuoto (100% di una CPU per tutta la durata)
+            if ($pendingRequests > 0 && curl_multi_select($multiHandle, 1.0) === -1) {
+                usleep(10000);
+            }
+        } while ($pendingRequests > 0 && $mrc === CURLM_OK);
         
         // risposte delle varie chiamate
         foreach ($curlHandles as $id => $handle) {
             $http_status = curl_getinfo($handle, CURLINFO_HTTP_CODE);
             $content = curl_multi_getcontent($handle);
+            // azzerato a ogni richiesta: prima, dopo il primo errore di rete TUTTE le
+            // richieste successive del blocco venivano marcate in errore con lo stesso messaggio
+            unset($error_msg);
 
             if (curl_errno($handle)) {
                 $error_msg = curl_error($handle);;

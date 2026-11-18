@@ -1,0 +1,10 @@
+# Materiale crittografico e configurazioni reali: mai nel repository
+certs/*
+!certs/README.md
+*.pem
+*.priv
+*.key
+# log delle esecuzioni (resta solo il log di esempio)
+logs/*
+!logs/2025-11-14*
+*.bak*
